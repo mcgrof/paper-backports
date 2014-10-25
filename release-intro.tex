@@ -1,0 +1,69 @@
+\subsection{The Linux kernel development model}
+
+The Linux kernel versioning scheme consists of a version, patchlevel,
+sublevel, and extraversion, all named after each attributes defined
+on the project top level Makefile. A \textbf{\textit{major kernel}} release
+happens when the version changes or when the version remains the same but the
+patchlevel is updated. A \textbf{\textit{major kernel release}} always has an
+implicit sublevel of 0. A \textbf{\textit{stable release}} follows on top of a
+\textbf{\textit{major kernel release}}, both the version and patch level remain
+the same but the sublevel updates. A \textbf{\textit{release candidate}}
+consists of a version, patchlevel, an implicit sublevel of 0, and an
+extraversion prefixed with "rc" and a digit representing the release
+candidate number, starting from 1. For example the v3.16-rc1 release has a
+version 3, sublevel 16, an implicit sublevel 0, and rc1 extraversion.
+
+Development for Linux happens through a set of distributed development
+trees, each development tree exclusively handles a set of components known
+as \textbf{\textit{subsystems}}, the list of components each tree is
+responsible for is documented on the project MAINTAINERS\footnote{https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/MAINTAINERS} file.
+Each development tree carries a delta for its components on top of the
+latest known \textbf{\textit{major kernel release}} release. Each
+\textbf{\textit{subsystem}} has a respective
+\textbf{\textit{subsystems maintainer}} or group of
+\textbf{\textit{subsystems maintainers}}. All new kernel features and
+drivers are queued on \textbf{\textit{subsystems development trees}} and in order
+to help make a release each \textbf{\textit{subsystem maintainer(s)}}
+eventually sends a pull request of their \textbf{\textit{subsystem development tree}}
+to Linus Torvalds during the \textbf{\textit{merge window}}.
+The \textbf{\textit{merge window}} begins
+as soon as Linus Torvalds release the next \textbf{\textit{major kernel release}}
+of Linux, the \textbf{\textit{merge window}} culminates when Linus Torvalds
+release the first \textbf{\textit{release candidate}} of a
+new \textbf{\textit{major kernel release}}; this entire process typically
+lasts about 1-2 weeks. For instance, the v3.16
+\textbf{\textit{merge window}} happened in between the release of
+v3.15 (June 8, 2014) and v3.16-rc1 (June 15, 2014).  A period known as the
+\textbf{\textit{release candidate evaluation}} period
+or \textbf{\textit{rc cycle}} follows the release of the first
+\textbf{\textit{release candidate}} after the \textbf{\textit{merge window}}.
+A \textbf{\textit{major kernel release}} may go through 5-9
+\textbf{\textit{release candidates}}.
+
+The purpose of the \textbf{\textit{release candidate evaluation}} period ideally
+is to only find and fix regressions for new code merged since the last
+\textbf{\textit{major kernel release}}. For example the
+v3.16 \textbf{\textit{major kernel release}} had 7 \textbf{\textit{release candidates}},
+v3.16-rc1 - v3.16-rc7, prior to Linus having made the final v3.16 \textbf{\textit{major kernel release}}.
+\textbf{\textit{Subsystem maintainer(s)} queue regression fixes for the
+current \textbf{\textit{release candidate}} on a \textbf{\textit{subsystem stable tree}},
+used only to send pull requests to Linus during the
+\textbf{\textit{release candidates evaluation}} period.
+A new driver by definition could not have been present on prior major release, in this case v3.15, and
+as such an exception is made to allow new device drivers during the
+\textbf{\textit{release candidate evaluation}} period. A
+\textbf{\textit{major kernel release}} is followed by
+\textbf{\textit{stable releases}} for it, for instance v3.16 was followed
+by v3.16.1, v3.16.2 and will continue to have releases until the
+kernel is declared as unmaintained. \textbf{\textit{Stable releases}} only
+contain critical bug fixes, they may never contain new features or drivers.
+
+The linux-next\footnote{git://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git}
+tree is used to mimic the \textbf{\textit{merge window}}
+on daily basis by pulling each \textbf{\textit{subsystems tree}} through
+a set of scripts. Every day the tree is reset to the latest
+\textbf{\textit{major kernel release}} and then each
+\textbf{\textit{subsystems tree}} pulled, after all trees are pulled
+the tree as tagged to reflect reflect the calendar date. The linux-next
+tree could be used to track the latest development efforts on all
+subsystems on a daily basis.

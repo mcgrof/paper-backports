@@ -1,0 +1,778 @@
+\documentclass[a4paper,10pt]{article}
+\usepackage{color}
+\usepackage[svgnames]{xcolor}
+  \definecolor{diffstart}{named}{Grey}
+  \definecolor{diffincl}{named}{Green}
+  \definecolor{diffrem}{named}{Red}
+
+\usepackage{listings}
+  \lstdefinelanguage{diff}{
+	basicstyle=\ttfamily\scriptsize,
+	morecomment=[f][\color{diffstart}]{@@},
+	morecomment=[f][\color{diffincl}]{+},
+	morecomment=[f][\color{diffrem}]{-},
+	identifierstyle=\color{black},
+  }
+
+\lstloadlanguages{Bash}
+\lstset{language=Bash,
+	basicstyle=\ttfamily\scriptsize,
+        showspaces=false,
+        rulesepcolor=\color{gray},
+	showstringspaces=false,
+	keywordstyle=\bfseries\color{green!40!black},
+	commentstyle=\itshape\color{purple!40!black},
+	identifierstyle=\color{blue},
+	stringstyle=\color{red},
+        morekeywords={elif}
+       }
+
+\lstloadlanguages{C}
+\lstset{language=C,
+	basicstyle=\ttfamily\scriptsize,
+	backgroundcolor=\color{white},
+        showspaces=false,
+        rulesepcolor=\color{gray},
+	showstringspaces=false,
+	keywordstyle=\bfseries\color{blue!40!black},
+	commentstyle=\itshape\color{purple!40!black},
+	identifierstyle=\color{black},
+	stringstyle=\color{red},
+        morekeywords={elif}
+       }
+
+\usepackage{caption}
+\usepackage{hyperref}
+\DeclareCaptionFont{white}{\color{white}}
+\DeclareCaptionFormat{listing}{\colorbox{gray}{\parbox{\textwidth}{#1#2#3}}}
+\captionsetup[lstlisting]{format=listing,labelfont=white,textfont=white}
+
+\begin{document}
+
+\begin{titlepage}
+\begin{center}
+
+\textsc{Backporting the Linux kernel with SmPL}\\[1.0cm]
+
+\begin{minipage}{0.4\textwidth}
+\begin{flushleft} \large
+Luis R. Rodriguez mcgrof@suse.com
+\end{flushleft}
+\end{minipage}
+
+\vfill
+
+{\large \today}
+
+\end{center}
+\end{titlepage}
+
+\section{Backporting the Linux kernel with SmPL}
+
+We should not only consider how to better evolve software but also how to more
+efficiently backport it. The Coccinelle engine was originally developed to help
+evolve writing software faster and more efficiently, but it can also be used to
+help backport software. This paper will cover how SmPL was embraced by the
+Linux backports project to help it backport the Linux kernel more effectively,
+more automatically, and to help the effort scale.
+
+\subsection{A brief on the Linux kernel backports Project}
+
+\begin{enumerate}
+\item
+Project home page: \url{https://backports.wiki.kernel.org}
+\item
+Code: \url{https://git.kernel.org/cgit/linux/kernel/git/backports/backports.git/}
+\item
+IRC: irc.freenode.net \#kernel-backports
+\item
+Dev team: 3 core developers, 2 co-maintainers, Hauke Mehrtens now doing most of the work
+\item
+Subsystems backported: Ethernet, Wireless, Bluetooth, NFC, ieee802154, Media, Regulator
+\end{enumerate}
+
+The Linux kernel backports project started in 2007, it has undergone
+a series of project names but eventually it took the general backports
+name as the project started backporting many subsystems. The project
+eventually folded under the Linux Foundation backports working group
+and now spearheads that effort.
+
+The backports project strives to backport the Linux kernel automatically
+through a series of strategies. It provides stable RC and first point
+stable releases based on Linus' tree and extra version stable releases
+based Greg's linux-stable tree. The method of development consists
+of following linux-next and making snapshot releases based on that. During the
+merge window one snapshot is used to base a branch off for a stable
+release. It follows the same mnemonic as used by linux-stable for stable
+release branches, linux-3.17.y, linux-3.16.y, while the master branch always
+follows linux-next.
+
+The project backports well over 800 drivers now, originally it provided
+backporting support for drivers down to 2.6.25. In order to scale better
+however the project now only supports kernels down to up to the the 3.x
+kernels, it strives to at least support kernels listed on kernel.org.
+The original motivation behind the project was to encourage
+silicon manufacturers to work upstream on the Linux kernel while providing a
+solution for them for backporting their drivers automatically down to older
+releases.  The framework is designed only for Linux upstream drivers,
+proprietary drivers cannot and should not use this framework.
+
+\subsection{A slightly different use case of Coccinelle}
+
+The Coccinelle engine was developed to help evolve the Linux kernel,
+INRIA / IRILL help evolve and maintain it. The Coccinelle engine was
+built after evaluating how the Linux kernel evolves, it originally
+tried to address enabling Linux kernel developers make collateral
+evolutions faster. It accomplished this by defining a language to
+express collateral evolutions, the Semantic Patch Language (SmPL).
+Developers write SmPL rules and use Coccinelle to apply the SmPL
+rules / patches onto a target directory / file. A typical use case
+for kernel developers is for them to use Coccinelle once or twice a
+month to help create collateral evolution on a series of device
+drivers or subsystems. The use case for backports is very different.
+Coccinelle would be used daily and all written SmPL rules would be
+applied against all supported subsystems and drivers.
+
+\subsection{The old way of doing backporting}
+
+Backporting device drivers / features typically consists of modifying source
+code with \#ifdefs to handle different requirements for different kernel
+releases. Below is an example which shows how developers would typically
+backport a collateral evolution with \#ifdefs. The example backports the
+collateral evolution introduced by commit d314774cf2 merged upstream as of the
+v2.6.29 release which moved a series of callbacks from struct net\_device out
+into its own data structure.  This addresses backporting this single collateral
+evolution on one device driver.
+
+\begin{lstlisting}[language=diff]
+--- a/drivers/net/usb/usbnet.c
++++ b/drivers/net/usb/usbnet.c
+@@ -1151,6 +1151,7 @@
+ }
+ EXPORT_SYMBOL_GPL(usbnet_disconnect);
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29))
+ static const struct net_device_ops usbnet_netdev_ops = {
+ 	.ndo_open		= usbnet_open,
+ 	.ndo_stop		= usbnet_stop,
+@@ -1160,6 +1161,7 @@
+ 	.ndo_set_mac_address 	= eth_mac_addr,
+ 	.ndo_validate_addr	= eth_validate_addr,
+ };
++#endif
+ 
+ /*-------------------------------------------------------------------------*/
+ 
+@@ -1229,7 +1231,15 @@
+ 		net->features |= NETIF_F_HIGHDMA;
+ #endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29))
+ 	net->netdev_ops = &usbnet_netdev_ops;
++#else
++	net->change_mtu = usbnet_change_mtu;
++	net->hard_start_xmit = usbnet_start_xmit;
++	net->open = usbnet_open;
++	net->stop = usbnet_stop;
++	net->tx_timeout = usbnet_tx_timeout;
++#endif
+ 	net->watchdog_timeo = TX_TIMEOUT_JIFFIES;
+ 	net->ethtool_ops = &usbnet_ethtool_ops;
+\end{lstlisting}
+
+\subsection{A slightly better way to backport}
+
+Maintenance of patches is easy so long as the amount of changes being
+introduced is rather small. The netdev\_ops collateral evolution is a good
+example of a collateral evolution which would typically require a large series
+of changes to maintain in patch form for each backported network device driver.
+A slightly better approach consists of wrapping up the required changes into
+static inline helpers or new exported symbols and have helper code do most of
+the required work. Below is an example which reflects this strategy by
+addressing backporting the netdev\_ops collateral evolution for two device
+drivers. For years the backports project has been following this strategy to
+help reduce the amount of maintenance on patches, it now has a large list of
+static inlines and exported symbols which helps keep required patches deltas to
+a minimum.
+
+\begin{lstlisting}[language=diff]
+--- a/drivers/net/usb/usbnet.c
++++ b/drivers/net/usb/usbnet.c
+@@ -1446,7 +1446,7 @@ usbnet_probe (struct usb_interface *udev
+ 		net->features |= NETIF_F_HIGHDMA;
+ #endif
+ 
+-	net->netdev_ops = &usbnet_netdev_ops;
++	netdev_attach_ops(net, &usbnet_netdev_ops);
+ 	net->watchdog_timeo = TX_TIMEOUT_JIFFIES;
+ 	net->ethtool_ops = &usbnet_ethtool_ops;
+ 
+--- a/drivers/net/wireless/ath/ath6kl/main.c
++++ b/drivers/net/wireless/ath/ath6kl/main.c
+@@ -1289,7 +1289,7 @@ static const struct net_device_ops ath6k
+ 
+ void init_netdev(struct net_device *dev)
+ {
+-	dev->netdev_ops = &ath6kl_netdev_ops;
++	netdev_attach_ops(dev, &ath6kl_netdev_ops);
+ 	dev->destructor = free_netdev;
+ 	dev->watchdog_timeo = ATH6KL_TX_TIMEOUT;
+\end{lstlisting}
+ 
+
+\subsection{The Coccinelle SmPL way to backport}
+
+Just as the Linux kernel could be evolved with SmPL the idea of backporting
+with SmPL was considered and evaluated. The netdev\_ops collateral evolution
+could be expressed in SmPL grammar as follows, for example.
+
+\begin{lstlisting}[language=diff]
+@@
+struct net_device *dev;
+struct net_device_ops ops;
+@@
+-dev->netdev_ops = &ops;
++netdev_attach_ops(dev, &ops);
+\end{lstlisting}
+
+This grammar could be used to backport the netdev\_ops collateral evolution
+for all networking device drivers.
+
+\subsection{Testing the limits of Coccinelle, backporting complex changes}
+
+To what extent can Coccinelle SmPL grammar be used to help backporting?
+To test the limits on what could be backported the most complex collateral
+evolution supported by the backports project was chosen as a test case,
+it was decided to try to backport threaded IRQ support, introduced in the
+v2.6.31 kernel.
+
+\subsection{Backporting threaded IRQ support the old way}
+
+Its important to first explain how the backports project provided backport
+support for threaded IRQ support prior to trying to use SmPL for the backport.
+Threaded IRQ support was supported on older kernels by extending each private
+driver data structure that used request\_threaded\_irq() with a struct
+compat\_threaded\_irq data structure defined as follows:
+
+\begin{lstlisting}[language=C]
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
+struct compat_threaded_irq {
+	unsigned int irq;
+	irq_handler_t handler;
+	irq_handler_t thread_fn;
+	void *dev_id;
+	char wq_name[64];
+	struct workqueue_struct *wq;
+	struct work_struct work;
+};
+#endif
+\end{lstlisting}
+
+The following helpers are also defined as static inlines.
+
+\begin{lstlisting}[language=C]
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
+static inline
+void compat_irq_work(struct work_struct *work)
+{
+	struct compat_threaded_irq *comp = container_of(work, struct compat_threaded_irq, work);
+	comp->thread_fn(comp->irq, comp->dev_id);
+}
+
+static inline
+irqreturn_t compat_irq_dispatcher(int irq, void *dev_id)
+{
+	struct compat_threaded_irq *comp = dev_id;
+	irqreturn_t res;
+
+	res = comp->handler(irq, comp->dev_id);
+	if (res == IRQ_WAKE_THREAD) {
+		queue_work(comp->wq, &comp->work);
+		res = IRQ_HANDLED;
+	}
+
+	return res;
+}
+
+static inline
+int compat_request_threaded_irq(struct compat_threaded_irq *comp,
+				unsigned int irq,
+				irq_handler_t handler,
+				irq_handler_t thread_fn,
+				unsigned long flags,
+				const char *name,
+				void *dev_id)
+{
+	comp->irq = irq;
+	comp->handler = handler;
+	comp->thread_fn = thread_fn;
+	comp->dev_id = dev_id;
+	INIT_WORK(&comp->work, compat_irq_work);
+
+	if (!comp->wq) {
+		snprintf(comp->wq_name, sizeof(comp->wq_name),
+			 "compirq/%u-%s", irq, name);
+		comp->wq = create_singlethread_workqueue(comp->wq_name);
+		if (!comp->wq) {
+			printk(KERN_ERR "Failed to create compat-threaded-IRQ workqueue %s\n",
+			       comp->wq_name);
+			return -ENOMEM;
+		}
+	}
+	return request_irq(irq, compat_irq_dispatcher, flags, name, comp);
+}
+
+static inline
+void compat_free_threaded_irq(struct compat_threaded_irq *comp)
+{
+	free_irq(comp->irq, comp);
+}
+
+static inline
+void compat_destroy_threaded_irq(struct compat_threaded_irq *comp)
+{
+	if (comp->wq)
+		destroy_workqueue(comp->wq);
+	comp->wq = NULL;
+}
+
+static inline
+void compat_synchronize_threaded_irq(struct compat_threaded_irq *comp)
+{
+	synchronize_irq(comp->irq);
+	cancel_work_sync(&comp->work);
+}
+#endif
+\end{lstlisting}
+
+Drivers would then need to be modified in order to make use of the new
+helpers. For example threaded IRQ support was supported for the b43 device driver
+through the following two patches.
+
+\begin{lstlisting}[language=diff]
+--- a/drivers/net/wireless/b43/b43.h
++++ b/drivers/net/wireless/b43/b43.h
+@@ -805,6 +805,9 @@ enum {
+ 
+ /* Data structure for one wireless device (802.11 core) */
+ struct b43_wldev {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
++	struct compat_threaded_irq irq_compat;
++#endif
+ 	struct b43_bus_dev *dev;
+ 	struct b43_wl *wl;
+ 	/* a completion event structure needed if this call is asynchronous */
+--- a/drivers/net/wireless/b43/main.c
++++ b/drivers/net/wireless/b43/main.c
+@@ -4243,8 +4243,17 @@ redo:
+ 	if (b43_bus_host_is_sdio(dev->dev)) {
+ 		b43_sdio_free_irq(dev);
+ 	} else {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+ 		synchronize_irq(dev->dev->irq);
++#else
++		compat_synchronize_threaded_irq(&dev->irq_compat);
++#endif
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+ 		free_irq(dev->dev->irq, dev);
++#else
++		compat_free_threaded_irq(&dev->irq_compat);
++		compat_destroy_threaded_irq(&dev->irq_compat);
++#endif
+ 	}
+ 	mutex_lock(&wl->mutex);
+ 	dev = wl->current_dev;
+@@ -4290,9 +4299,17 @@ static int b43_wireless_core_start(struc
+ 			goto out;
+ 		}
+ 	} else {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+ 		err = request_threaded_irq(dev->dev->irq, b43_interrupt_handler,
+ 					   b43_interrupt_thread_handler,
+ 					   IRQF_SHARED, KBUILD_MODNAME, dev);
++#else
++		err = compat_request_threaded_irq(&dev->irq_compat,
++						  dev->dev->irq,
++						  b43_interrupt_handler,
++						  b43_interrupt_thread_handler,
++						  IRQF_SHARED, KBUILD_MODNAME, dev);
++#endif
+ 		if (err) {
+ 			b43err(dev->wl, "Cannot request IRQ-%d\n",
+ 			       dev->dev->irq);
+\end{lstlisting}
+
+\subsection{Backporting threaded IRQ support with SmPL}
+
+The challenge at hand is to now backport this threaded IRQ support by using
+SmPL. Most changes ended up being relatively trivial -- replace one caller with
+another caller, and instead of using one data structure, use the backport data
+structure on some arguments of the callers.  The more challenging aspect of
+this backport consisted of having to use Coccinelle to let it infer what the
+private data structure was, and modify that to extend it with the backport IRQ
+data structure. Coccinelle supports data structure inferences so after
+understanding how to do that the backport was completed.
+
+\begin{lstlisting}[language=diff]
+@ threaded_irq @
+identifier ret;
+expression irq, irq_handler, irq_thread_handler, flags, name;
+type T;
+T *private;
+@@
+
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+ret = request_threaded_irq(irq,
+			   irq_handler,
+			   irq_thread_handler,
+			   flags,
+			   name,
+			   private);
++#else
++ret = compat_request_threaded_irq(&private->irq_compat,
++				   irq,
++				   irq_handler,
++				   irq_thread_handler,
++				   flags,
++				   name,
++				   private);
++#endif
+
+@ sync_irq depends on threaded_irq @
+expression irq;
+type threaded_irq.T;
+T *threaded_irq.private;
+@@
+
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+synchronize_irq(irq);
++#else
++compat_synchronize_threaded_irq(&private->irq_compat);
++#endif
+
+@ free depends on threaded_irq @
+expression irq, dev;
+type threaded_irq.T;
+T *threaded_irq.private;
+@@
+
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+free_irq(irq, dev);
++#else
++compat_free_threaded_irq(&private->irq_compat);
++compat_destroy_threaded_irq(&dev->irq_compat);
++#endif
+
+@ modify_private_header depends on threaded_irq @
+type threaded_irq.T;
+@@
+
+T {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
++      struct compat_threaded_irq irq_compat;
++#endif
+...
+};
+\end{lstlisting}
+
+\subsection{Legacy patch series to SmPL equivalence proof}
+
+Coccinelle would typically be used to help yield a series of patches which
+would then be used to be submitted for review upstream on the Linux kernel. For
+backporting however we want to reduce into grammar what a series of patches
+were previously doing. To verify correctness then one would need proof that a
+new series of SmPL rules have a direct functional equivalence to an old series
+of patches. Since patch formats vary a consistent patch format would need to be
+decided upon for what Coccinelle generates and how one writes patches without
+usage of SmPL. Even difference in space format could make working on a proof of
+equivalence difficult.
+
+The Coccinelle engine required a series of minor changes in order to provide a
+conscice series of patches when using \#ifdefs. To provide a proof of equivalence
+two identical trees can be used, one would have the SmPL rules applied while
+the other would have a series of legacy patches applied. Proof of equivalence
+is provided once the difference between these two trees yields no delta. This
+legacy patch series to SmPL equivalence proof model was used to replace series
+of patches within the backports project and it also revealed a little surprise:
+the SmPL tree had more code changes, but the changes consisted of propagating the
+expressed backported collateral evolution onto more drivers than previously
+supported. It should be expected that generalizing a backport with SmPL
+then would enable extending that backport onto more drivers. Once a driver
+has the sum of all required collateral evolutions for one kernel addressed
+it should be possible to enable that driver for usage on that kernel.
+Should all required collateral evolutions to support one kernel be addressed
+with SmPL then integrating one new device driver into the framework would
+yield a complete automatic backport of that driver for the target kernel.
+
+\subsection{Gains of using Coccinelle for backporting}
+
+Coccinelle revealed inconsistencies on the threaded IRQ backport,
+the new struct compat\_thread\_irq was pegged on different data
+structures on different drivers. Its expected that Coccinelle
+can help build more consistent and precise backports then.
+
+Trying to backport threaded IRQ support with Coccinelle revealed
+the series of patches carried to support threaded IRQ support
+actually provided backporting for two collateral evolutions. The
+backports project benefits from splitting up collateral evolutions
+backported as it would in turn make it easier to backport the same
+collateral evolution for other device drivers.
+
+For a few patch series the amount of time to generate a backported release was
+reduced, even though it automatically backported for example the threaded IRQ
+collateral evolution to 10 new device drivers. The reason for the speed
+increase of using Coccinelle over a series of patches consists of the
+multithreaded nature of how one can apply rules with Coccinelle, while a series
+of patches require linear synchronous application. Not all series of legacy
+patches replaced with SmPL rules yielded shorter run times, but for some
+series this certainly was the case.
+
+\subsection{Scaling usage of Coccinelle to backport}
+
+Backport releases are generated and compile tested on a big iron server donated
+by HP, SUSE and Linux Foundation, the machine consists of 32 cores and 236 GiB
+RAM.  The project uses a /pub/mem tmpfs, has linux.git, linux-stable.git,
+backports, and all code it generates in RAM. Each release is test compiled
+against every supported kernel, a Python script ckmake, is used to test
+compilation of each release against all supported kernels.  Compilation tests
+are all performed in RAM.
+
+At first all SmPL patches were concatenated together and Coccinelle was run
+only once. On uniprocessor runs / unparalleled environments this worked best.
+Coccinelle has a script to help split up work for the engine, on each iteration
+you speficy the max number of CPUs available, and the index which corresponds
+to the current run, the rule and target. If you have 4 CPUs you spawn
+Coccinelle 4 times and the only argument for each run that would change is the
+index. The following script was typically used to help make use of Coccinelle's
+parallelism:
+
+\begin{lstlisting}[language=bash]
+#!/bin/bash
+# By Kees Cook
+# http://comments.gmane.org/gmane.comp.version-control.coccinelle/680
+set -e
+MAX=$(getconf _NPROCESSORS_ONLN)
+dir=$(mktemp -d)
+for i in $(seq 0 $(( MAX - 1 )) ); do
+    spatch -max $MAX -index $i -very_quiet "$@" > $dir/$i.out &
+done
+wait
+cat $dir/*.out
+rm -f $dir/*.out
+rmdir $dir
+\end{lstlisting}
+
+\subsection{Coccinelle Parallelizing improvements}
+
+The backports project ended up fine tuning usage of Coccinelle
+with sensible arguments and managing Coccinelle's current parallelism
+support using Python. The script was generalized for regular
+kernel development use and now merged on Coccinelle development
+git tree. Usage:
+
+\begin{lstlisting}[language=bash]
+pycocci foo.cocci drivers/
+\end{lstlisting}
+
+It does what you'd expect, it uses --in-place, its parallelized, and another
+series sensible arguments are used if you want to apply rules broadly. In
+the future Coccinelle will be modified to use Ocaml Parmap library
+for integrated parallelism support. In order to help make Coccinelle
+run faster software index utilities can be used, glimpse is one option,
+another is idutils. Glimpse is unfortunately not FOSS. By default
+Coccinelle relies on its own grep implementation to search for tokens.
+
+\subsection{Helping Coccinelle find things faster: needle in the haystack}
+
+At times it helps to express rules simply to locate objects
+you wish to modify. A rule used as a needle in a haystack
+search query does not need to contain changes, it would
+simply contain elements describing the type of object you
+want to consider modifying. For instance if you want to
+modify a PCI driver you might use this first rule and
+then depend on it for subsequent rules.
+
+\begin{lstlisting}[language=diff]
+@ module_pci @
+declarer name MODULE_DEVICE_TABLE;
+identifier pci_ids;
+@@
+
+MODULE_DEVICE_TABLE(pci, pci_ids);
+\end{lstlisting}
+
+Other rules can now depend on module\_pci and you'd be
+sure to be only applying the following SmPL rules to
+PCI drivers.
+
+\begin{lstlisting}[language=diff]
+@ simple_dev_pm depends on module_pci @
+identifier ops, pci_suspend, pci_resume;
+declarer name SIMPLE_DEV_PM_OPS;
+declarer name compat_pci_suspend;
+declarer name compat_pci_resume;
+@@
++compat_pci_suspend(pci_suspend);
++compat_pci_resume(pci_resume);
+SIMPLE_DEV_PM_OPS(ops, pci_suspend, pci_resume);
+\end{lstlisting}
+
+This last rule then adds a postfix for the backport respective callbacks.
+
+\begin{lstlisting}[language=diff]
+@@
+identifier backport_driver;
+expression pm_ops;
+fresh identifier backports_pci_suspend = simple_dev_pm.pci_suspend ## "_compat";
+fresh identifier backports_pci_resume = simple_dev_pm.pci_resume ## "_compat";
+@@
+
+struct pci_driver backport_driver = {
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29))
+	.driver.pm  = pm_ops,
++#elif defined(CONFIG_PM_SLEEP)
++	.suspend	= backports_pci_suspend,
++	.resume 	= backports_pci_resume,
++#endif
+};
+\end{lstlisting}
+
+\subsection{Coccinelle is precise}
+
+One of the benefits of Coccinelle is that its less prone to errors,
+experience has shown manually backporting complex collateral evolutions
+is error prone. In this section we'll provide an example of how a rule
+will only modify the data structure specified, even if similar data
+structures exist with similar member names.
+
+The code example below can be obtained and tested at:
+
+\url{https://github.com/mcgrof/netdev-ops.git}
+
+Usage:
+
+\begin{lstlisting}[language=bash]
+make test1
+git checkout -f
+make test2
+\end{lstlisting}
+
+Consider the following piece of code:
+
+\begin{lstlisting}[language=C]
+#include
+
+struct net_device_ops {
+};
+
+struct net_device {
+	struct net_device_ops *netdev_ops;
+};
+
+struct bubble_ops {
+};
+
+struct bubbles {
+	struct bubble_ops *netdev_ops;
+};
+
+static struct net_device_ops my_netdev_ops = {
+};
+
+static struct bubble_ops my_bubble_ops = {
+};
+
+static struct parent {
+	struct net_device *dev;
+	int b;
+};
+
+static struct parent_usb {
+	struct net_device *net;
+	int b;
+};
+
+int main(void)
+{
+	struct parent *p = malloc(sizeof(struct parent));
+	struct parent_usb *p_usb = malloc(sizeof(struct parent));
+	struct net_device *dev = malloc(sizeof(struct net_device));
+	struct bubbles *bubble = malloc(sizeof(struct bubbles));
+
+	dev->netdev_ops = &my_netdev_ops;
+	bubble->netdev_ops = &my_bubble_ops;
+
+	free(dev);
+	free(bubble);
+	free(p);
+	free(p_usb);
+
+	p->dev = dev;
+	p->dev->netdev_ops = &my_netdev_ops;
+	p_usb->net->netdev_ops = &my_netdev_ops;
+
+	return 0;
+}
+\end{lstlisting}
+
+The following SmPL grammar rule will modify both struct net\_device
+and struct bubbles.
+
+\begin{lstlisting}[language=diff]
+@@
+expression dev;
+expression ops;
+@@
+-dev->netdev_ops = ops;
++netdev_attach_ops(dev, ops);
+\end{lstlisting}
+
+If one wanted to be a bit more precise and careful one
+could be explicit about the data structure that
+one wishes to modify:
+
+\begin{lstlisting}[language=diff]
+@@
+struct net_device *dev;
+struct net_device_ops ops;
+@@
+-dev->netdev_ops = &ops;
++netdev_attach_ops(dev, &ops);
+\end{lstlisting}
+
+This will only make changes to struct net\_device.
+
+\subsection{Conclusions}
+
+The backports project removed support for kernels older than 3.0, even though
+it backports over 800 device drivers it currently only uses Coccinelle for 5
+collateral evolutions. Using Coccinelle on small patches is possible but its
+simply overkill. The ideal use case for Coccinelle when backporting is actually
+for the harder collateral evolutions that need to be backported.
+
+A general practice must be put in place to break down every patch into separate
+atomic pieces.  Each atomic piece backported should have a respective
+documented commit upstream. All changes dealing with the same commit upstream
+should be grouped together, each set then represent the backport of one
+collateral evolution. The more fine grained patches are broken down into the
+easier it will be to transform a backport into SmPL.  This begs the question if
+using SmPL for forward collateral evolutions might enable using the same SmPL
+grammer but inversed to backport the same collateral evolution in the future.
+Its purely theoretical, but it may be possible and such possibility would
+take backporting automation to yet another new level.
+
+The backports project has a series of best practices learned throughout the
+years, for instance its easier to backport using static inlines and helpers.
+If static inlines were already used upstream for setting / updating of certain
+data structures the backports project would only have to provide the equivalent
+definition for the call for older kernels. Would kernel maintainers be
+comfortable in making changes upstream that would help automatically backport
+features / device drivers / subsystems? The first set of changes submitted
+upstream to help with making backporting easier was submitted and now merged.
+
+\subsection{Acknowledgements}
+
+A lot of the work put forward on backports with Coccinelle integration
+was made possible thanks to funding by INRIA and IRILL.
+
+\end{document}

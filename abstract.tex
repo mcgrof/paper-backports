@@ -1,0 +1,15 @@
+Software is continually evolving, to fix bugs and add new features.
+Industry users, however, often value stability, and thus are not always
+able to update their code base to the latest versions.  This raises the
+need to selectively backport new features to older software versions.
+Traditionally, backporting has been done by cluttering the backported code
+with preprocessor directives, to replace behaviors that are unsupported in
+an earlier version by appropriate workarounds.  This approach however
+involves writing a lot of error-prone backporting code, and results in
+implementations that are hard to read and maintain.  We consider this issue
+in the context of the Linux kernel, for which older versions are in wide
+use.  We present a new backporting strategy that relies on the use of a
+compatability library and on code that is automatically generated using the
+program transformation tool Coccinelle.  This approach reduces the amount
+of code that must be manually written, and thus can help the Linux kernel
+backporting effort scale.

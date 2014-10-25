@@ -1,0 +1,30 @@
+\section{Related Work}
+\label{related}
+
+The specific problem of backporting has not received much attention in the
+research community.  Backporting is, however, related to more general
+issues of change management, as arise when merging trees in a source code
+management system and when integrating changes developed for one branch of
+a software product line into another branch.
+
+Uquillas G\'omez et al.~\cite{UquillasGomez:wcre10} propose visualization
+tools to aid the developer in integrating a patch developed for one branch
+of a software project into another branch of the software project.  They
+focus on individual changes and on helping the developer to identify semantic
+issues that may affect the correctness of the change in the new context.
+Other work on change impact analysis includes that of Gallagher and Lyle
+\cite{Gall91a}, who use program slicing \cite{Weis81a} to collect
+information about the impact of a change, and the tool Chianti, which
+identifies change impact based on the results of test cases \cite{Ren04a}.
+The work on change impact is complementary with ours.  In our case, the
+correct backport is already identified, and we are concerned with expressing
+it in a concise and robust way.  In the future, we could combine change
+impact analysis with our approach, to further check the correctness of the
+backported code.
+
+Fiuczynski et al.\ faced the challenge of keeping an externally maintained
+patchset up to date with the evolutions in the Linux kernel
+\cite{Fiuczynski:hotos05}.  They proposed a preliminary solution based on
+aspect-oriented programming \cite{Kiczales:01} to re-express these patches
+in a more generic and robust way.  To the best of our knowledge, this tool
+remained in a prototype stage.

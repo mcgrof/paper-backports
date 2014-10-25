@@ -1,0 +1,157 @@
+\section{Introduction}
+
+\input{release-intro}
+
+\subsection{Current pace of Linux kernel development}
+
+The Linux kernel has a rapid pace of development
+\footnote{https://github.com/gregkh/kernel-development/blob/1b17a1f21f2b0b871419f29947b2960cb36cb00b/kernel-development.pdf?raw=true}:
+in between the releases v3.11.0 - v3.16.0 (September 2013 - August 2014) we
+have record of 3,483 developers and 439 companies contributing to the project.
+During this period 8,700 lines of code were added, 3,880 lines of code removed,
+and 1,900 lines of code modified on average every day. This accounts for
+roughly about 7.6 changes per hour. The v3.16 release in particular had 9.5
+changes per hour. The Linux kernel currently has a release cycle of about one
+release every 2 1/2 months. With such a rapid pace of development users, Linux
+distributions and system integrators are found having to cope with either
+upgrading their kernels regularly or providing a means to integrate features /
+drivers from future kernels into their existing kernels. There are a slew of
+reasons why some users may not want to upgrade their kernels as often as
+kernels are released. Some system integrators may have invested heavily in
+testing a specific release and may wish to avoid regressions or invalidation of
+tests due to a kernel upgrade.  Upgrading a kernel may also at times require
+experience to understand what features to enable / disable or tune to meet
+existing deployment criteria. In the worst case some systems may rely on
+components not yet merged upstream on Linux and a kernel upgrade may at times
+be impossible without effort of a vendor or a slew of partners collaborating
+towards a new productized image for a system.
+
+The Linux kernel follows a loose timeline model for releases. There are known
+trackers to produce an evaluation and best guess estimate of the next
+release\footnote{http://phb-crystal-ball.org/} based on evaluation of history
+of prior releases, these trackers are however currently only use very simply
+heuristics and should only be used for estimation purposes only. Based on the
+release history in between v3.11 - v3.16  (September 2013 - August 2014) we
+know the Linux kernel had roughly about one release every 2 1/2
+months\footnote{https://github.com/gregkh/kernel-development/blob/1b17a1f21f2b0b871419f29947b2960cb36cb00b/kernel-development.pdf?raw=true}.
+During this time of 11 months period there were 5 kernel releases:
+v3.11 - v3.16. How Linux distributions, users, system integrators end up
+picking up new a \textbf{\textit{major kernel releases}} for their use varies
+widely but since new device drivers and features can only come from
+\textbf{\textit{major kernel releases}} the only way to get these features
+unless they are backported is to do a full kernel upgrade.
+
+\subsection{Benefits and issues with upstream development}
+
+When features or device drivers are written specifically for older
+\textbf{\textit{major kernel releases}} they incur an additional burden of
+either a full rewrite or port when its that device driver or features is
+desirable on a new \textbf{\textit{major kernel release}}.  The amount of work
+required to address a forward port for a device driver or feature consists of
+addressing all collateral evolutions for that feature / device driver for all
+kernel releases it has no forward port for yet. For example, a networking
+device driver written only for the v3.2 kernel will have to have addressed all
+collateral evolutions in between v3.12 - v3.16 in order to be supported on the
+v3.16 release of the kernel. A device driver or feature written only for one
+target \textbf{\textit{major kernel release}} will also only be useful for
+those users / Linux distributions / system integrators who are currently using
+the same \textbf{\textit{major kernel release}}.  When code is developed
+targeting the latest \textbf{\textit{major kernel release}} and submitted for
+inclusion upstream, a practice known as \textbf{\textit{working upstream}} or
+\textbf{\textit{upstream first model}}, it will gain from being advanced by the
+community as the kernel evolves, it will always be compliant with the latest
+\textbf{\textit{major kernel release}}. Not all users will be using the latest
+\textbf{\textit{major kernel release}} however, and this poses a problem of
+where to dedicate resources and attention to when doing development.
+
+There are two differnt types of problems depending on which development model
+is embraced: to target an old kernel release or to work with with an
+\textbf{\textit{upstream first model}}. The Linux community prefers you to base
+your work on top of the latest and greatest, for you to \textbf{\textit{work
+upstream}}, given that if you are working on an old release of the kernel
+chances your code will be deprecated fast. If you are working on code based on
+an old release the users of your code remain constrained to one specific kernel
+release. If you \textbf{\textit{work upstream}} and you submit your code as
+early as possible all Linux distributions will eventually get support for your
+driver / features. At least for silicon manufacturers though, at the time a
+device driver is being written they need to provide support for the current set
+of \textbf{\textit{major kernel releases}} that are currently supported. This
+and the fact that Linux kernel development follows strict coding guidelines and
+best practices may at time deter silicon manufacturers from prioritizing doing
+Linux development with an \textbf{\textit{upstream first model}}.
+
+\subsection{Why and how Linux is backported}
+
+If a device driver or feature is supported upstream on the latest
+\textbf{\textit{major kernel release}} but not on older kernel
+releases a Linux distribution or system integrator has no option
+but to do work to backport that device driver or feature down to
+the target kernel release of interest. If two Linux distributions or
+system integrators require the same backport work for one device driver
+or feature that code has historically not been generalized or shared
+due to a series of reasons: different timelines, priorities,
+different work flows. This also means that historically Linux backporting
+work has generally not been shared between interested parties.
+
+Backporting strategies have typically consisted of wrapping kernel
+code with C \#ifdefs handling what is required for each kernel release on each
+target file. This means backported code for each component has typically not
+been shared even within each Linux distribution's or system integrator's
+codebase. This also means that code that gets backported becomes harder to read
+given the new code flows required to support each kernel release.
+
+\subsection{Generalizing backporting Linux}
+
+A solution to all these problems was desirable in order to help promote an
+\textbf{\textit{upstream first}} development model, it was imperative that the
+solution remain Linux distribution agnostic. What was required was a mechanism
+by which all development can be focused on the latest \textbf{\textit{major kernel
+release}} and a backport solution provided that would easily allow usage of
+that code on a series of older \textbf{\textit{major kernel releases}} but at
+the same time also provide as much code sharing, make code easy to read and
+maintain. Sharing code for a backport through a series of helpers can help by
+reducing the amount of \#ifdefs on code, this practice can help split up,
+categorize and most importantly identify required required backport work by
+documenting the required specific collateral evolutions that are being
+addressed on each backport. This practice helps identify commonly backported
+collateral evolutions, this is important for both documentation purposes but
+also helps with identifying code that should probably be considered for a
+helper.
+
+Sharing code helps backporting collateral evolutions by requiring less work,
+target code however needs to be transformed to use a new set of shared helpers.
+Using a set of helpers allows to reduce the amount of changes required on
+upstream code to support different kernel releases.  This process still
+requires manual intervention and as such can be error prone.  Coccinelle is an
+engine that was developed to evolve the Linux kernel through a grammar, SmPL.
+Use of Coccinelle was evaluated to help perform the transformation required by
+a shared set of helpers. If possible it would mean gramatically expressing
+the backport of a collateral evolution. If a collateral evolution backport
+could be formalized through SmPL it would mean having to express the backport
+only once, reducing the mount of code supported for a backport.
+
+\subsection{Overview}
+
+This paper will review how the above problems gave rise to the Linux backports
+project \footnote{https://backports.wiki.kernel.org}, describe in detail with
+examples how backporting has historically been done in the industry, how the
+project evolved the practice to use a shared backports module and set of
+headers files to reduce the amount of delta for backported components, and
+finally how and why it has integrated support for use the Coccinelle engine in
+order to help the project. To help with this the paper includes a specific case
+study example of a complex collateral evolution the project had to backport and
+will review in detail that backport using each different approach discussed.
+The first backport approach reviewed will be the strategy used by most of the
+industry using \#ifdefs on target code, it will then explain how that backport
+can be generalized through a shared backport module, and finally how it can be
+further optimizing by integrating Coccinelle SmPL. There are a series of minor
+challenges that will be discussed faced with using Coccinelle but these were
+all related to parrallelism and pretty printing, and growing confidence with
+Coccinelle by proving equivalence of a backport through a patch series Vs using
+Coccinelle SmPL. The different use case of Coccinelle for backporting will be
+explained and how its use case contrasts what was expected for general Linux
+kernel development. This paper will put emphasis on the idea of of how each new
+strategy embraced over the years has helped the project grow and scale and
+ultimately how each of these these new strategies have helped shape the project
+objective shift from just backporting the Linux kernel towards trying automate
+the proces of Linux kernel backporting as much as possible.

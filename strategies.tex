@@ -1,0 +1,174 @@
+\section{Backporting strategies}
+\label{strategies}
+
+We now review three backporting strategies: i) the common strategy of
+providing version-specific implementations using \#ifdefs, ii) the strategy
+originally taken by the Linux backports project of factorizing these
+changes into a compatibility library, and iii) our extension of the latter
+using Coccinelle.
+
+\subsection{Backporting with \#ifdefs}
+
+Backporting a device driver typically consists of modifying the source code
+with \#ifdefs to handle the different requirements of different kernel
+releases.  This entails adding blocks of code that provide alternate
+implementations for various functionalities, for different ranges of kernel
+versions, according to which evolutions have occurred and which collateral
+evolutions must be performed to accommodate them.
+
+As a running example, we consider an evolution that was introduced by Linux
+kernel commit d314774cf2 and that was first merged upstream in Linux
+v2.6.29.  This evolution moved a series of callback functions from the {\tt
+  net\_\-device} data structure out into a new separate data structure of
+type {\tt net\_\-device\_\-ops}.  Backporting over this evolution, for Linux
+kernel versions before Linux v2.6.29, requires collateral evolutions that
+{\em undo} this change.  Specifically, the definition of the new {\tt
+  net\_\-device\_\-ops} structure and the initialization of the link from the
+{\tt net\_\-device} structure to this new structure must be restricted, using
+an \#ifdef, to the versions starting with Linux v2.6.29.  Earlier versions
+must initialize the appropriate fields in the {\tt net\_\-device} structure
+itself, from among the callback functions that the modern driver puts in the
+new structure.  Figure \ref{usbport} shows a patch that backports this
+single collateral evolution on one device driver.
+
+\begin{figure}
+\begin{lstlisting}[language=diff]
+--- a/drivers/net/usb/usbnet.c
++++ b/drivers/net/usb/usbnet.c
+@@ -1151,6 +1151,7 @@
+ }
+ EXPORT_SYMBOL_GPL(usbnet_disconnect);
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29))
+ static const struct net_device_ops usbnet_netdev_ops = {
+   .ndo_open               = usbnet_open,
+   .ndo_stop               = usbnet_stop,
+@@ -1160,6 +1161,7 @@
+   .ndo_set_mac_address    = eth_mac_addr,
+   .ndo_validate_addr      = eth_validate_addr,
+ };
++#endif
+ 
+ /*-----------------------------------------------------*/
+ 
+@@ -1229,7 +1231,15 @@
+     net->features |= NETIF_F_HIGHDMA;
+ #endif
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29))
+   net->netdev_ops = &usbnet_netdev_ops;
++#else
++  net->change_mtu = usbnet_change_mtu;
++  net->hard_start_xmit = usbnet_start_xmit;
++  net->open = usbnet_open;
++  net->stop = usbnet_stop;
++  net->tx_timeout = usbnet_tx_timeout;
++#endif
+   net->watchdog_timeo = TX_TIMEOUT_JIFFIES;
+   net->ethtool_ops = &usbnet_ethtool_ops;
+\end{lstlisting}
+\caption{Backporting the {\tt net\_\-device\_\-ops} collateral evolution for
+  the {\tt usbnet} driver}
+\label{usbport}
+\end{figure}
+
+Lines 7 and 23 of Figure \ref{usbport} introduce the \#ifdefs that restrict
+some code of the modern driver to be used only in Linux versions v2.6.29
+and later.  Lines 25-31 introduce the code to be used for earlier versions,
+placing the relevant callback functions from the modern code (lines 8-13)
+into the fields of the {\tt net} structure.  In each case, the callback
+functions are used by the driver support library of the kernel, which is
+not backported, and which thus finds the desired functions in the expected
+place, with no further code changes.
+
+In general, every driver that initializes a {\tt net\_\-device} structure
+would require all of these changes.  Creating these patches, and
+maintaining them as other collateral evolutions are needed, is complex,
+tedious, and error prone.
+%\jl{Who uses this approach?}
+
+\subsection{Backports via a compatibility library}
+
+Maintenance of patches is easy as long as the amount of changes being
+introduced is rather small. The {\tt netdev\_\-ops} collateral evolution,
+however, is an example of a collateral evolution that affects many network
+drivers, resulting in a large set of changes, that then have to be
+maintained in patch form.  A better approach, proposed by the Linux
+backports project, consists of wrapping up the required changes into static
+inline or external helper functions and then using \#ifdefs in these
+functions to adapt the code to each previous release.
+
+This strategy is illustrated by the following code, which backports the
+{\tt netdev\_\-ops} collateral evolution for two device drivers.  Now, the
+new {\tt net\_\-device\_\-ops} structure used by the modern driver is
+maintained as is.  Instead, we replace the direct initialization of the
+{\tt netdev\_\-ops} field by a call to a single static inline function
+defined by the backports compat library, amounting to glue code.  Now, only
+this function needs multiple lines of \verb-#ifdef- code, performing the
+direct assignment for versions starting with Linux v2.6.29, and copying the
+fields from the new structure into the main {\tt net\_\-device} structure
+for the older versions.  Only one line of code is changed in each driver,
+in contrast to the 10 lines added to each driver by the previous approach.
+
+\begin{lstlisting}[language=diff]
+--- a/drivers/net/usb/usbnet.c
++++ b/drivers/net/usb/usbnet.c
+@@ -1446,7 +1446,7 @@ usbnet_probe (struct usb_interface *udev
+     net->features |= NETIF_F_HIGHDMA;
+ #endif
+ 
+-  net->netdev_ops = &usbnet_netdev_ops;
++  netdev_attach_ops(net, &usbnet_netdev_ops);
+   net->watchdog_timeo = TX_TIMEOUT_JIFFIES;
+   net->ethtool_ops = &usbnet_ethtool_ops;
+ 
+--- a/drivers/net/wireless/ath/ath6kl/main.c
++++ b/drivers/net/wireless/ath/ath6kl/main.c
+@@ -1289,7 +1289,7 @@ static const struct net_device_ops ath6k
+ 
+ void init_netdev(struct net_device *dev)
+ {
+-  dev->netdev_ops = &ath6kl_netdev_ops;
++  netdev_attach_ops(dev, &ath6kl_netdev_ops);
+   dev->destructor = free_netdev;
+   dev->watchdog_timeo = ATH6KL_TX_TIMEOUT;
+\end{lstlisting}
+
+Between 2007 and 2013 the backports project exclusively followed this
+strategy to help reduce the amount of maintenance on patches. The backport
+compat library now has a large set of helper functions that help to keep the
+number and size of the patches required for each backported driver to a
+minimum.
+
+\subsection{The Coccinelle way to backport}
+
+The compat library approach reduces significantly the amount of code that
+must be modified in each driver. Still, backporting a new driver requires
+identifying the set of features that it uses, and comparing these features
+to those provided by the compat library to see where a collateral evolution
+to replace the existing code by glue code invoking the compat library is
+needed.  Just as Coccinelle had been found to be useful in performing
+traditional (forward) collateral evolutions, we considered whether
+Coccinelle could also be useful for the kinds of collateral evolutions
+required in backports. For example, the {\tt netdev\_\-ops} collateral
+evolution could be expressed as a Coccinelle semantic patch as follows:
+
+\begin{lstlisting}[language=diff]
+@@
+struct net_device *dev;
+struct net_device_ops ops;
+@@
+- dev->netdev_ops = &ops;
++ netdev_attach_ops(dev, &ops);
+\end{lstlisting}
+
+This semantic patch could be used to backport the netdev\_\-ops collateral
+evolution for all networking device drivers.  It is indeed no longer even
+necessary for the developer to identify whether a new device driver to
+backport uses this features; Coccinelle both finds and updates the relevant
+code automatically.  Note in particular that the semantic patch specifies
+the type of the expressions matching the {\tt dev} and {\tt ops}
+metavariables, to ensure that the transformation is performed only on
+structures of the appropriate type.  Finally, this semantic patch amounts to
+only 6 lines of code to maintain, rather than 2 lines of code {\em for each
+  driver} with the \#ifdef approach.

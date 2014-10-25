@@ -1,0 +1,65 @@
+newgraph
+yaxis min 0 max 800 size 1 label : backported drivers
+xaxis size 3 no_auto_hash_labels
+hash_label at     1	: v2.6.29-pre 
+hash_label at     2	: v2.6.30 
+hash_label at     3	: v2.6.31 
+hash_label at     4	: v2.6.32.16 
+hash_label at     5	: v2.6.33.6 
+hash_label at     6	: v2.6.34.1 
+hash_label at     7	: v2.6.35.9 
+hash_label at     8	: v2.6.36.2 
+hash_label at     9	: v2.6.37.6 
+hash_label at    10	: v2.6.38.2 
+hash_label at    11	: v2.6.39.4 
+hash_label at    12	: v3.0.26 
+hash_label at    13	: v3.1.10 
+hash_label at    14	: v3.2.13 
+hash_label at    15	: v3.3 
+hash_label at    16	: v3.4-rc1 
+hash_label at    17	: v3.5.4 
+hash_label at    18	: v3.6.8 
+hash_label at    19	: v3.7 
+hash_label at    20	: v3.8.2 
+hash_label at    21	: v3.9 
+hash_label at    22	: v3.10 
+hash_label at    23	: v3.11 
+hash_label at    24	: v3.12 
+hash_label at    25	: v3.13 
+hash_label at    26	: v3.14 
+hash_label at    27	: v3.15 
+hash_label at    28	: v3.16.2 
+hash_label at    29	: v3.17-rc3 
+hash_labels rotate -90 vjt hjl
+
+newcurve linetype solid
+pts
+     1 4
+     2 48
+     3 54
+     4 58
+     5 58
+     6 68
+     7 78
+     8 78
+     9 81
+    10 83
+    11 87
+    12 108
+    13 110
+    14 109
+    15 113
+    16 113
+    17 118
+    18 119
+    19 121
+    20 127
+    21 129
+    22 647
+    23 661
+    24 656
+    25 657
+    26 687
+    27 687
+    28 774
+    29 727

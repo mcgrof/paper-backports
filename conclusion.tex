@@ -1,0 +1,48 @@
+\section{Conclusions and Future Work}
+\label{concl}
+
+The Linux backports project currently supports 5 semantic patches totaling
+198 lines of code.  These semantic patches affect 215 files in the
+linux-next of October 15, 2014.  Recently, with v3.15, the Linux backports
+project has removed support for kernels older than v3.0 (see Figure
+\ref{num_patches}).  Six other semantic patches that had been developed for
+supporting older kernels were removed at this time.  Furthermore, some glue
+code is still implemented by direct modification to the driver code.  Using
+a semantic patch is appropriate when the changes are complex, are relevant
+to many drivers, and are susceptible to be affected by other evolutions in
+the code.  Overall, the use of semantic patches has contributed to the
+robustness of the backport process.  Indeed, another developer on the
+backports project recently stated ``All the patches that broke often in the
+early days are now using coccinelle or are removed because they were only
+needed for the older kernel versions.''\footnote{Hauke Mehrtens, private
+  email of October 23, 2014.}
+
+The work on backports raises a number of directions for future work.  One
+direction would be to reduce the need for glue code by integrating upstream
+static inline functions for accessing and updating key data structures.
+Patches to address this have been submitted and have now started to be
+accepted at least on the networking subsystem, maintained by David Miller,
+specifically to help reduce the amount of work to backport the ieee802154
+subsystem.\footnote{https://lkml.org/lkml/2014/4/17/663} this change is now
+merged as part of the v3.18-rc1 release.
+
+Another direction would be to infer semantic patches.  For many of our
+backports, we have a collection of manually written patches that make the
+same change.  Backporting could be further streamlined by inferring
+semantic patches from these examples.  Preliminary work has indeed been
+done on the automatic inference of change specifications
+\cite{jAndersenAse2008,Meng:13}.  Alternatively, we observe that our
+additions of glue code amount to (the inverses of) collateral evolutions.
+If a library change is accompanied by a semantic patch, to ease updating
+the library's clients, then it might be possible to systematically invert
+this semantic patch for subsequent backporting.  Another direction would be
+to infer the glue code itself.
+
+Finally, it is always a concern that a change in the code may break
+semantic invariants.  We leave as future work to investigate whether change
+impact analysis, as described above, can be relevant here.
+
+%% \subsection{Acknowledgements}
+
+%% A lot of the work put forward on backports with Coccinelle integration
+%% was made possible thanks to funding by INRIA and IRILL.

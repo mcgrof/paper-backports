@@ -1,0 +1,361 @@
+\section{Case Study}
+\label{case}
+
+To test the limits of what can be backported using Coccinelle, we chose the
+most complex collateral evolution supported by the backports project as a
+test case.  Specifically, we decided to try to backport threaded IRQ
+support, introduced in the v2.6.31 kernel.  This backport requires
+modifications to a driver-specific structure, as well as to multiple driver
+functions.
+
+\subsection{Backporting threaded IRQ support the old way}
+
+We first explain how the backports project provided backport support for
+threaded IRQ support prior to the use of Coccinelle.  The first step was to
+extend the compat library with support for threaded IRQs, as shown in
+Figure \ref{compat}.  This involved creating a new data type {\tt
+  compat\_\-threa\-ded\_\-irq} (lines 1-11) to collect some extra information
+for each driver, and creating a set of helper functions to implement the
+threaded IRQ fuctionality (lines 13-69).  The helper functions include {\tt
+  compat\_\-request\_\-threa\-ded\_\-irq} (lines 26-44), which initializes
+the fields of the {\tt compat\_\-threa\-ded\_\-irq} structure and then calls
+{\tt request\_\-irq}, and functions such as {\tt
+  compat\_\-free\_\-threa\-ded\_\-irq} (lines 46-51) and {\tt
+  compat\_\-synchronize\_\-threa\-ded\_\-irq} (lines 62-69) that call their
+unthreaded counterparts on information stored in the {\tt
+  compat\_\-threa\-ded\_\-irq} structure.  In all, the extension to the
+compat library amounts to 75 lines of code.\footnote{Computed using David
+  Wheeler's SLOCCount, \newline http://www.dwheeler.com/sloccount/.}
+
+%% 10 for structure, 65 for functions
+%% The complete code is in compat_extend.c
+
+\begin{figure}[h!]
+\begin{lstlisting}[language=C]
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
+struct compat_threaded_irq {
+	unsigned int irq;
+	irq_handler_t handler;
+	irq_handler_t thread_fn;
+	void *dev_id;
+	char wq_name[64];
+	struct workqueue_struct *wq;
+	struct work_struct work;
+};
+#endif
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
+static inline
+void compat_irq_work(struct work_struct *work)
+{
+  ...
+}
+
+static inline
+irqreturn_t compat_irq_dispatcher(int irq, void *dev_id)
+{
+  ...
+}
+
+static inline
+int compat_request_threaded_irq(
+	struct compat_threaded_irq *comp,
+	unsigned int irq,
+	irq_handler_t handler,
+	irq_handler_t thread_fn,
+	unsigned long flags,
+	const char *name,
+	void *dev_id)
+{
+  comp->irq = irq;
+  comp->handler = handler;
+  comp->thread_fn = thread_fn;
+  comp->dev_id = dev_id;
+  INIT_WORK(&comp->work, compat_irq_work);
+  ...
+  return request_irq(irq, compat_irq_dispatcher, flags,
+		 name, comp);
+}
+
+static inline
+void compat_free_threaded_irq(
+	struct compat_threaded_irq *comp)
+{
+  free_irq(comp->irq, comp);
+}
+
+static inline
+void compat_destroy_threaded_irq(
+	struct compat_threaded_irq *comp)
+{
+  if (comp->wq)
+    destroy_workqueue(comp->wq);
+  comp->wq = NULL;
+}
+
+static inline
+void compat_synchronize_threaded_irq(
+	struct compat_threaded_irq *comp)
+{
+  synchronize_irq(comp->irq);
+  cancel_work_sync(&comp->work);
+}
+#endif
+\end{lstlisting}
+\caption{Extensions to the compat library to support \newline {\tt
+    request\_\-threa\-ded\_\-irq}}
+\label{compat}
+\end{figure}
+
+Each driver to backport that relies on threaded IRQs then needs to be
+modified to make use of the new helper functions.  Figure \ref{compatpatch}
+shows the modifications for the b43 driver.  Lines 1-13 update a header
+file to extend the driver's private {\tt b43\_\-wldev} structure type with
+a field containing the compat structure when the kernel version is lower
+than the first one that supports threaded irqs.  Lines 14-52 replace each
+threaded IRQ operation with its compat version, again for kernels for which
+threaded irqs are not already supported.
+
+\begin{figure}
+\begin{lstlisting}[language=diff]
+--- a/drivers/net/wireless/b43/b43.h
++++ b/drivers/net/wireless/b43/b43.h
+@@ -805,6 +805,9 @@ enum {
+ 
+ /* Data structure for one wireless device (802.11 core) */
+ struct b43_wldev {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
++	struct compat_threaded_irq irq_compat;
++#endif
+ 	struct b43_bus_dev *dev;
+ 	struct b43_wl *wl;
+ 	/* a completion event structure needed if this call is
+            asynchronous */
+--- a/drivers/net/wireless/b43/main.c
++++ b/drivers/net/wireless/b43/main.c
+@@ -4243,8 +4243,17 @@ redo:
+ 	if (b43_bus_host_is_sdio(dev->dev)) {
+ 		b43_sdio_free_irq(dev);
+ 	} else {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+ 		synchronize_irq(dev->dev->irq);
++#else
++		compat_synchronize_threaded_irq(&dev->irq_compat);
++#endif
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+ 		free_irq(dev->dev->irq, dev);
++#else
++		compat_free_threaded_irq(&dev->irq_compat);
++		compat_destroy_threaded_irq(&dev->irq_compat);
++#endif
+ 	}
+ 	mutex_lock(&wl->mutex);
+ 	dev = wl->current_dev;
+@@ -4290,9 +4299,17 @@ static int b43_wireless_core_start(
+ 			goto out;
+ 		}
+ 	} else {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+                err = request_threaded_irq(dev->dev->irq,
+				b43_interrupt_handler,
+				b43_interrupt_thread_handler,
+				IRQF_SHARED, KBUILD_MODNAME, dev);
++#else
++               err = compat_request_threaded_irq(&dev->irq_compat,
++					dev->dev->irq,
++					b43_interrupt_handler,
++					b43_interrupt_thread_handler,
++					IRQF_SHARED, KBUILD_MODNAME, dev);
++#endif
+ 		if (err) {
+ 			b43err(dev->wl, "Cannot request IRQ-%d\n",
+ 			       dev->dev->irq);
+\end{lstlisting}
+\caption{Backporting the b43 driver}
+\label{compatpatch}
+\end{figure}
+
+The changes shown in Figure \ref{compatpatch} amount to 20 lines of added
+code and only apply to a single driver.  As of the linux-next of October
+15, 2014, 169 files contain at least one call to {\tt
+  request\_\-threa\-ded\_\-irq}, and of these 16 are in subsystems supported
+by the Linux backports project.\footnote{1 in ethernet, 7 in wireless, 0 in
+  bluetooth, 2 in nfc, 0 in ieee802145, 4 in media, 2 in regulator.}
+Backporting all of the 169 files that use threaded IRQs to Linux versions
+prior to v2.6.31 would require developing and maintaining over 3000 lines
+of patch code.
+
+\subsection{Backporting threaded IRQ support with Coccinelle}
+
+Figure \ref{thrdirq} shows a Coccinelle semantic patch that automates these
+changes.  Most are relatively trivial: replace one call with another,
+with the new call using the backport data structure among its arguments.  A
+typical example is illustrated in the first rule (lines 1-24), where a call
+to {\tt request\_\-threa\-ded\_\-irq} is replaced by a call to {\tt
+  compat\_\-request\_\-threa\-ded\_\-irq}.  The new call takes the same
+arguments as the old one, with the addition of the
+first argument (line 17), which is the {\tt compat\_\-threa\-ded\_\-irq}
+structure.
+
+\begin{figure}
+\begin{lstlisting}[language=diff]
+@ threaded_irq @
+identifier ret;
+expression irq, irq_handler, irq_thread_handler, flags,
+           name;
+type T;
+T *private;
+@@
+
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+ret = request_threaded_irq(irq,
+			   irq_handler,
+			   irq_thread_handler,
+			   flags,
+			   name,
+			   private);
++#else
++ret = compat_request_threaded_irq(&private->irq_compat,
++				   irq,
++				   irq_handler,
++				   irq_thread_handler,
++				   flags,
++				   name,
++				   private);
++#endif
+
+@ sync_irq depends on threaded_irq @
+expression irq;
+type threaded_irq.T;
+T *threaded_irq.private;
+@@
+
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+synchronize_irq(irq);
++#else
++compat_synchronize_threaded_irq(&private->irq_compat);
++#endif
+
+@ free depends on threaded_irq @
+expression irq, dev;
+type threaded_irq.T;
+T *threaded_irq.private;
+@@
+
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,31)
+free_irq(irq, dev);
++#else
++compat_free_threaded_irq(&private->irq_compat);
++compat_destroy_threaded_irq(&dev->irq_compat);
++#endif
+
+@ modify_private_header depends on threaded_irq @
+type threaded_irq.T;
+@@
+
+T {
++#if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,31)
++      struct compat_threaded_irq irq_compat;
++#endif
+...
+};
+\end{lstlisting}
+\caption{Backporting threaded IRQs with Coccinelle}
+\label{thrdirq}
+\end{figure}
+
+A challenge in implementing this backport is where to store the {\tt
+  compat\_\-threa\-ded\_\-irq} structure.  As multiple instances of a device
+may be present in a running kernel, this structure cannot simply be a
+global variable of the device driver.  In the case of the b43 driver, we
+placed this structure into the driver's {\tt b43\_\-wldev} structure.  To
+generalize this, we need to find a suitable location for this structure in
+each driver to which the semantic patch may be applied.
+
+The need to support multiple instances of a data structure at run time is a
+common problem in device driver development, and the Linux kernel proposes
+a standard solution, the use of a {\em private} data structure.  An
+instance of this private structure is created when a device is initialized,
+and then the driver infrastructure makes this structure available to each
+driver callback function, much like the implicit ``this'' argument found in
+object-oriented languages.  Normally, each driver defines a specific
+private-structure type, containing the information that is specific to its
+operation.  We exploit this private structure to store the {\tt
+  compat\_\-threa\-ded\_\-irq} structure.
+
+To use the private structure to store the {\tt compat\_\-threa\-ded\_\-irq}
+structure, we must address two issues.  First, for each driver, we must
+find the type of the private structure and extend the corresponding type
+declaration with a field for the {\tt compat\_\-threa\-ded\_\-irq} structure.
+Second, we must find the name of the current instance of the private
+structure at each point where a reference to the {\tt
+  compat\_\-threa\-ded\_\-irq} structure is needed for the backport process.
+
+To address the first issue, we exploit the fact that Coccinelle collects
+type information when analyzing the source code, and makes it possible to
+manipulate this type information via metavariables in a semantic patch.
+Fortunately, device drivers typically already pass their private structure
+as the last argument to {\tt request\_\-threa\-ded\_\-irq}, as the
+information contained in the private structure is typically also needed by
+the interrupt handler, which is installed by this function.  By matching
+this reference to the private structure, Coccinelle makes it possible to
+obtain its type.  Concretely, line 5 of Figure \ref{thrdirq} declares a
+type metavariable {\tt T}, which is then used in describing the type of
+metavariable {\tt private}.  Matching {\tt private} against the code in the
+last argument of {\tt request\_\-threa\-ded\_\-irq} has the side effect of
+storing the type of the matched code in {\tt T}, where it can be used by
+subsequent rules.  In the fourth rule (lines 51 to 60), {\tt T}, referenced
+as {\tt threaded\_\-irq.T}, is used to match and extend the definition of
+the private structure, adding a new field {\tt irq\_\-compat} to the
+beginning of the private structure when the kernel version is less than
+v2.6.31.
+
+To address the second issue, we exploit the fact that, within a given
+driver, the Linux developers typically give the private structure the same
+name, in every function in which it is used.  Thus, we simply inherit the
+term matched by the metavariable {\tt private} defined in the rule {\tt
+  threaded\_\-irq}, and use that term in the added calls in the {\tt
+  synch\_\-irq} and {\tt free} rules.  This solution is not safe, but it is
+pragmatic, in that it simplifies the transformation and exploits properties
+of the Linux coding style.  Note that in the {\tt free\_\-irq} case (lines
+38-49), we could also use the second argument to {\tt free\_\-irq}, which
+by definition of the IRQ API should point to the same structure as the last
+argument to {\tt request\_\-threa\-ded\_\-irq}.\footnote{Actually,
+  unintentionally, in the second call that is added by this rule, this
+  strategy is used.}  This value is not immediately available in the {\tt
+  sync\_\-irq} rule (lines 26-36), but we could extend the rule to match a
+neighboring expression of the right type, for a safer solution.
+
+\subsection{Benefits of using Coccinelle for backporting}
+
+Reimplementing the threaded IRQ backport using Coccinelle revealed that the
+original manual backport was inconsistent.  Specifically, in the manual
+backport, the compat structure, {\tt compat\_\-thread\_\-irq}, was integrated
+into different structures in different drivers.  Backporting is
+intrinsically risky, because the older code may not respect the invariants
+required by the backported code.  Modifying the older code in a consistent
+way reduces the set of issues that can arise.  Doing so also
+makes the results easier for developers to understand.
+
+Reimplementing the threaded IRQ backport using Coccinelle also revealed
+that the existing threaded IRQ patch series also backported another
+collateral evolution, related to the management of IRQ flags.  Isolating
+each collateral evolution in a separate patch benefits the backports
+project, by making it easier to understand how to backport other drivers,
+which may need only one of the changes.  Using Coccinelle not only makes
+the need for this split apparent, it also makes it easier to manage the
+resulting set of changes.  While two sets of changes are now needed, each
+is performed by a single semantic patch that can be applied to many files,
+rather than having to implement and record each of the changes
+individually.
+
+Finally, for a few patch series, the amount of time to generate a
+backported release was actually reduced, as compared to the application of
+the manually created patches.  Coccinelle has to parse the driver C code
+and search for relevant code, all of which are much more expensive than
+applying a patch, in which the file name, line number, and code context are
+explicitly specified.  Nevertheless, patch application is sequential, while
+Coccinelle can work on a collection of individual files in parallel.  This
+difference is sufficient to make the use of Coccinelle faster in some
+cases.
+

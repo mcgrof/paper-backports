@@ -1,0 +1,162 @@
+\section{Introduction}
+
+Linux is an open-source operating system kernel that has been under
+development since 1991.  Its reliability, customizability, and low cost has
+made it a popular choice for an operating system kernel across the
+computing spectrum, from smartphones and tablets based on the Android
+distribution, to desktops based on popular distributions such as Debian and
+Ubuntu, to supercomputers based on Enterprise Linux releases.  The Linux
+kernel is evolving rapidly, with a major release roughly every 2.5 months.
+Between the recent major releases v3.11 and v3.16 (September 2013 - August
+2014), on average, 8,700 lines of code were added, 3,880 lines of code
+were removed, and 1,900 lines of code were modified {\em every
+  day}.\footnote{https://github.com/gregkh/kernel-development/blob/
+  1b17a1f21f2b0b871419f29947b2960cb36cb00b/kernel-development.pdf?raw=true}
+This rapid rate of change combined with frequent releases allows the Linux
+kernel to keep up to date with bug fixes, new functionalities, and new
+services, such as new CPU architectures, device drivers and filesystems.
+
+\subsection{The dilemma for silicon manufacturers}
+
+While the rapid release cycle of Linux has many benefits, it can be
+problematic for certain classes of users.  Some system integrators may have
+invested heavily in testing a specific release and may wish to avoid
+regressions due to a kernel upgrade.  Upgrading a kernel may also require
+experience to understand what features to enable, disable, or tune to meet
+existing deployment criteria. In the worst case, some systems may rely on
+components that have not yet been merged into the mainline Linux kernel.
+Such a dependence may make it impossible to upgrade the kernel without
+cooperation from the component vendor or a slew of partners that need to
+collaborate on developing a new productized image for a system.  As an
+example, development for 802.11n AR9003 chipset support on the upstream
+ath9k device driver started on March 20, 2010 with an early version of the
+silicon, at which point the most recent major release of the Linux kernel
+was v2.6.32.  One of the first products to ship with this driver was the Google
+Chrome CR48, using ChromeOS, which started selling in retail in May 2011.
+The latest kernel release at this point was v2.6.38, but ChromeOS was still
+based on the v2.6.32 kernel, the release it was originally developed for.
+
+The reluctance of users in many markets to keep up to date with the latest
+kernel poses a dilemma for silicon manufacturers, who need to make
+available device drivers so that their devices can be used on Linux
+systems.  One approach is to develop drivers explicitly for the kernel
+releases that their clients are currently using.  However, even clients who
+value stability may eventually need to modernize.  Doing so then incurs the
+burden of a full rewrite or port of each driver to the newly adopted kernel
+release.  While the device itself may be unchanged, the kernel evolves
+frequently with new internal APIs to improve the performance, robustness or
+flexibility of the code.  Pervasive {\em collateral evolutions} are then
+needed to update the driver with respect to these changes
+\cite{Padioleau:eurosys06}.  And even once the driver is successfully
+ported to a more modern kernel, the problem is not really solved.  The
+result will only be usable by those who are currently using the same
+kernel release.
+
+An alternative to targeting a device driver to a specific kernel version is
+\textit{upstream-first} development, in which code is initially developed
+only for the latest major kernel release, and then is submitted for
+inclusion {\em upstream}, {\em i.e.}, into the Linux git repository
+maintained by Linus Torvalds, allowing the device driver to be included in
+the coming major release.  While achieving inclusion upstream can be a
+challenge for silicon manufacturers, due to the strict coding guidelines of
+the Linux kernel, once it is achieved, the developers at the silicon
+company that upstreamed the device driver can then benefit from help from
+the Linux community in reviewing changes to the device driver as the Linux
+kernel evolves \cite{KH:api}.  The silicon manufacturer needs to contribute
+only one complete version of the code; since it is upstream it will then be
+part of all future kernel releases and all future Linux distributions. As
+time goes by the silicon manufacturers may wish to turn their attention
+towards newer silicon.  At this time, engineers can then orphan maintenance
+for older device drivers, allowing any community developer to take their
+maintenance on.
+
+\subsection{Why and how Linux is backported}
+
+The upstream-first model makes device drivers available for users of future
+kernels, but leaves out those who must remain with older releases.  If a
+device driver is only supported upstream, a Linux distribution or system
+integrator has no option but to backport that device driver down to the
+kernel release of interest.  Backporting strategies have typically
+consisted of augmenting each affected file with \#ifdefs that handle what
+is required for each kernel release on each target file. As each file is
+augmented individually, there is no code sharing, even within a single
+Linux distribution's codebase. Files also become harder to read, as the
+original code is interspersed with new code flows required to support each
+kernel release.
+
+Since 2007, the Linux kernel backports project has promoted an alternative
+backport strategy, with the goal of maximizing code sharing and minimizing
+disruption to the individual driver source files, and with the goal of
+enabling upstream-first development of new drivers and features by making
+backports available to everyone, regardless of the Linux distribution used.
+The main innovation was to move the changes required to backport each
+driver out of the individual driver files and into a {\em compat} library,
+providing a set of helper functions.  Indeed, typically, for a given class
+of devices, the drivers use a similar set of API functions and coding
+strategies, and these functions and coding strategies can all be backported
+in the same way.  Rather than distributing the handling for each older
+release in every driver file, all of these variations are encapsulated into
+a compat library function.  These functions can be declared as static
+inlines when performance is needed, or as external functions to limit the
+increase in code size.  This approach was used in the ath9k support for
+ChromeOS noted above. The ath9k device driver was extended with AR9003
+family chipset support upstream, and this support was incorporated as part
+of the v2.6.38 release at the time of the release of the Google Chrome
+CR48. Support for the AR9003 family of chipsets on ath9k on ChromeOS
+however was provided and backported onto the ChromeOS v2.6.32 based kernel
+using the Linux backports compat library.
+
+%% The repetitive \#ifdefs and backport-specific code are typically replaced
+%% by at most a single \#ifdef adding a single function call at each point
+%% where the upstream behavior is not appropriate for older kernels.
+
+The use of a compat library can dramatically reduce the amount of code
+changes required to support a class of drivers.  Nevertheless, some changes
+per driver are still required, amounting to {\em glue code}, to invoke the
+compat library functions and to {\em e.g.}, modify type definitions, which
+cannot be encapsulated into a function definition.  These changes must
+initially be made manually in each supported file to create {\em
+  patches},\footnote{A patch is a document indicating the lines of added
+  and removed code, in a format generated by the Unix command {\tt diff}.
+  A patch can be automatically applied to a file using the Unix command
+  {\tt patch} \cite{diffmanual:02}.} which are made available to users, and
+these patches need to be maintained as the kernel evolves.  Making these
+changes and maintaining the resulting patches is tedious and error prone,
+and limits the number of drivers that the backports project can support.  A
+solution was thus needed to ease the process introducing this glue code.
+
+\subsection{Our contribution}
+
+In this paper, we report on a new methodology for backports adopted by the
+Linux backports project that combines the use of a compat library with the
+use of Coccinelle \cite{Padioleau:eurosys08}. Coccinelle is a program
+matching and transformation tool for C code that has been specifically
+designed to meet the needs and requirements of Linux developers.  Matches
+and transformations are described in terms of an extension of the patch
+notation with generic features, resulting in {\em semantic patches}.
+Unlike patches, which are restricted to specific positions in specific
+files, a Coccinelle semantic patch expresses a change in a generic way,
+allowing it to be applied across an entire code base and to adapt to minor
+changes in this code base, as the code base evolves over time.  In the
+context of backports, we automate the integration of the glue code into
+each supported driver using Coccinelle.  Now the glue code needs to be
+specified only once, and then this specification can be applied
+automatically to all supported drivers over multiple releases, thus further
+reducing the amount of maintenance work to support a backport.
+
+The rest of this paper is organized as follows.  Section \ref{background}
+provides the background for this work, including the relevant aspects of
+the Linux development models, the history of the backports project, and the
+use of Coccinelle.  Section \ref{strategies} then presents a tour of
+backporting strategies in more detail, based on a simple example. Next,
+Section \ref{case} expands this tour to illustrate a more complex case
+study, in which the changes required are determined by driver-specific
+information.  Section \ref{correct} then highlights some correctness and
+performance issues.  Finally, we briefly consider related work,
+conclusions, and directions for future work.  This paper will put emphasis
+on how each new backporting strategy has helped the backports project to
+grow and scale, and ultimately how each of these strategies has helped to
+shift the objective of the project away from simply backporting the Linux
+kernel, towards trying to automate the backport process as much as
+possible.
+

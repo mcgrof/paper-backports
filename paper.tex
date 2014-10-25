@@ -1,0 +1,168 @@
+%===========================================================
+%\documentclass[twocolumn, 10pt]{article}
+%\documentclass[10pt, conference, compsocconf]{IEEEtran}
+\documentclass[conference]{LatexTemplate_ICSE2015/IEEEtran}
+\usepackage{paralist}
+\usepackage{listings}
+\usepackage{framed}
+\usepackage{graphicx}
+\usepackage{tabularx}  %Auto-stretching table 
+\usepackage{multirow}  %Multicolumn command 
+\usepackage{wrapfig}
+\usepackage{amssymb}
+%\usepackage{subfig}   %Including table in a figure
+\usepackage{array}
+\usepackage{rotating}
+\usepackage{alltt}
+%\usepackage[lineno1,norules,leftno]{lgrind}
+
+%---------------------------------------------
+
+% Very convenient to add comments on the paper. Just set the boolean
+% to false before sending the paper:
+\usepackage{ifthen}
+\newboolean{showcomments}
+\setboolean{showcomments}{true}
+%\setboolean{showcomments}{false}
+\ifthenelse{\boolean{showcomments}}
+{ \newcommand{\mynote}[2]{\textcolor{red}{
+    \fbox{\bfseries\sffamily\scriptsize#1}
+    {\small$\blacktriangleright$\textsf{\emph{#2}}$\blacktriangleleft$}}}}
+{ \newcommand{\mynote}[2]{}}
+
+\newcommand{\jl}[1]{\mynote{Julia}{#1}}
+\newcommand{\lr}[1]{\mynote{Luis}{#1}}
+
+%\renewcommand{\bfdefault}{m}
+
+% Including code snippet
+\usepackage{listings}
+% Set the style of included code
+\lstset{
+       language=Python,
+       basicstyle=\small\sffamily,
+       numbers=left,
+       numbersep=2pt,
+       numberstyle=\tiny,
+       %frame=single,
+       captionpos=b,
+       columns=fullflexible,
+       showstringspaces=false, 
+       breaklines=true,
+}
+
+\usepackage{color}
+\usepackage[svgnames]{xcolor}
+  \definecolor{diffstart}{named}{Blue}%{Grey}
+  \definecolor{diffincl}{named}{Green}
+  \definecolor{diffrem}{named}{Red}
+
+\newcommand{\extrabold}{}%{\bfseries}
+
+\usepackage{listings}
+  \lstdefinelanguage{diff}{
+	basicstyle=\ttfamily\extrabold\scriptsize,
+	morecomment=[f][\color{diffstart}]{@},
+	morecomment=[f][\color{diffincl}]{+},
+	morecomment=[f][\color{diffrem}]{-},
+	identifierstyle=\color{black},
+  }
+
+\lstloadlanguages{Bash}
+\lstset{language=Bash,
+	basicstyle=\ttfamily\scriptsize,
+        showspaces=false,
+        rulesepcolor=\color{gray},
+	showstringspaces=false,
+	keywordstyle=\bfseries\color{green!40!black},
+	commentstyle=\itshape\color{purple!40!black},
+	identifierstyle=\color{blue},
+	stringstyle=\color{red},
+        numbers=left,
+        numbersep=2pt,
+        morekeywords={elif}
+       }
+
+\lstloadlanguages{C}
+\lstset{language=C,
+	basicstyle=\ttfamily\extrabold\scriptsize,
+	backgroundcolor=\color{white},
+        showspaces=false,
+        rulesepcolor=\color{gray},
+	showstringspaces=false,
+	keywordstyle=\bfseries\color{blue!40!black},
+	commentstyle=\itshape\color{purple!40!black},
+	identifierstyle=\color{black},
+	stringstyle=\color{red},
+        numbers=left,
+        numbersep=2pt,
+        morekeywords={elif}
+       }
+
+\usepackage{caption}
+\usepackage{hyperref}
+\DeclareCaptionFont{white}{\color{white}}
+\DeclareCaptionFormat{listing}{\colorbox{gray}{\parbox{\textwidth}{#1#2#3}}}
+\captionsetup[lstlisting]{format=listing,labelfont=white,textfont=white}
+
+% correct bad hyphenation here
+\hyphenation{op-tical net-works semi-conduc-tor}
+
+\pagestyle{plain}
+\thispagestyle{plain}
+
+%===========================================================
+%                          Title
+%===========================================================
+\begin{document}
+
+\title{Increasing Automation in the Backporting of \\ Linux Drivers Using
+  Coccinelle}
+
+% author names and affiliations
+% use a multiple column layout for up to two different
+% affiliations
+
+\author{
+\IEEEauthorblockN{Luis R.~Rodriguez}
+\IEEEauthorblockA{Rutgers University/SUSE Labs\\
+mcgrof@winlab.rutgers.edu\\
+mcgrof@suse.com,
+mcgrof@do-not-panic.com}
+\and
+\IEEEauthorblockN{Julia Lawall}
+\IEEEauthorblockA{Inria/LIP6/UPMC/Sorbonne University\\
+Julia.Lawall@lip6.fr}
+}
+
+
+\maketitle
+
+
+%===========================================================
+\begin{abstract}
+\input{abstract.tex}
+\end{abstract}
+%===========================================================
+
+
+%===========================================================
+\begin{IEEEkeywords}
+Linux, backports, program transformation
+\end{IEEEkeywords}
+%===========================================================
+
+\input{intro_outline}
+\input{back}
+\input{strategies}
+\input{case}
+\input{correct}
+\input{related}
+\input{conclusion}
+
+%===========================================================
+\bibliographystyle{IEEEtran}
+\bibliography{ref}
+%===========================================================
+
+\end{document}
